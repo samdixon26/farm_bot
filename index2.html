@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>ESP32 Sensor Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body { font-family: Arial; text-align: center; margin: 20px; background: #f4f6f9; }
+    h1 { color: #333; margin-bottom: 20px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 20px; }
+    canvas { background: white; border-radius: 12px; padding: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.2); }
+  </style>
+</head>
+<body>
+  <h1>🌐 ESP32 Sensor Dashboard (ThingSpeak)</h1>
+  <div class="grid">
+    <div><h3>Soil Moisture (%)</h3><canvas id="moistureChart"></canvas></div>
+    <div><h3>Temperature (°C)</h3><canvas id="tempChart"></canvas></div>
+    <div><h3>Humidity (%)</h3><canvas id="humChart"></canvas></div>
+    <div><h3>Gas Sensor (Raw)</h3><canvas id="gasChart"></canvas></div>
+  </div>
+
+  <script>
+    const channelID = "3083654";        // Replace with your ThingSpeak channel ID
+    const readAPIKey = "965MMFEI6XPJ8G1N";     // Replace with your ThingSpeak read API key
+    const maxPoints = 20;
+
+    // Map analog sensor values to percentage (0-100)
+    function mapToPercent(value, minVal, maxVal) {
+      let percent = ((value - minVal) / (maxVal - minVal)) * 100;
+      if (percent < 0) percent = 0;
+      if (percent > 100) percent = 100;
+      return percent;
+    }
+
+    // Function to create line charts
+    function createLineChart(ctx, label, color, yMax=null) {
+      return new Chart(ctx, {
+        type: 'line',
+        data: { labels: [], datasets: [{ label, data: [], borderColor: color, fill: false, tension: 0.3 }] },
+        options: { 
+          responsive: true,
+          scales: { 
+            x: { display: false }, 
+            y: { beginAtZero: true, max: yMax } 
+          } 
+        }
+      });
+    }
+
+    // Create line charts
+    let moistureChart = createLineChart(document.getElementById('moistureChart'), "Soil Moisture %", "blue", 100);
+    let tempChart     = createLineChart(document.getElementById('tempChart'), "Temperature °C", "red");
+    let humChart      = createLineChart(document.getElementById('humChart'), "Humidity %", "green", 100);
+    let gasChart      = createLineChart(document.getElementById('gasChart'), "Gas Sensor", "orange");
+
+    // Fetch data from ThingSpeak
+    async function fetchThingSpeak() {
+      try {
+        let url = `https://api.thingspeak.com/channels/${channelID}/feeds.json?api_key=${readAPIKey}&results=1`;
+        let res = await fetch(url);
+        let data = await res.json();
+        let feed = data.feeds[0];
+
+        // Convert sensors to correct scale
+        let moisturePercent = mapToPercent(Number(feed['field3']), 0, 4095); // Moisture 0-100%
+        let tempCelsius     = Number(feed['field2']);                        // Temperature °C (raw)
+        let humPercent      = Number(feed['field1']);                        // Humidity 0-100%
+        let gasRaw          = Number(feed['field4']);                        // Gas raw
+
+        function updateLineChart(chart, value) {
+          chart.data.labels.push(feed.created_at.split("T")[1].split("Z")[0]);
+          chart.data.datasets[0].data.push(value);
+          if(chart.data.labels.length > maxPoints) {
+            chart.data.labels.shift();
+            chart.data.datasets[0].data.shift();
+          }
+          chart.update();
+        }
+
+        updateLineChart(moistureChart, moisturePercent);
+        updateLineChart(tempChart, tempCelsius);
+        updateLineChart(humChart, humPercent);
+        updateLineChart(gasChart, gasRaw);
+
+      } catch(err) {
+        console.error("Error fetching ThingSpeak data:", err);
+      }
+    }
+
+    // Update every 20 seconds
+    setInterval(fetchThingSpeak, 20000);
+    fetchThingSpeak(); // initial fetch
+  </script>
+</body>
+</html>
